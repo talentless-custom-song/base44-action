@@ -9,6 +9,7 @@ import AdmZip from 'adm-zip';
 import * as store from './store.js';
 import * as workspace from './workspace.js';
 import { dispatchBuild, githubConfig, isGithubConfigured } from './github.js';
+import { attachRemoteProxy } from './remoteProxy.js';
 import { enqueue, recoverInterrupted, sampleZipBuffer } from './runner.js';
 
 const PORT = Number(process.env.PORT || 8000);
@@ -233,6 +234,10 @@ function sendError(res, err) {
   res.status(err.status || 500).json({ error: err.message || 'Unexpected error' });
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`BuildHub API listening on ${PORT}`);
 });
+
+// Keeps the remote-desktop VNC socket same-origin, so a plain ws:// image works
+// on the https preview instead of being blocked as mixed content.
+attachRemoteProxy(server);

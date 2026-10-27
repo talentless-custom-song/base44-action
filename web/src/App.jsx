@@ -3,6 +3,7 @@ import StatsBar from './components/StatsBar.jsx';
 import Workspace from './components/Workspace.jsx';
 import NewBuild from './components/NewBuild.jsx';
 import GithubBuild from './components/GithubBuild.jsx';
+import RemoteDesktop from './components/RemoteDesktop.jsx';
 import BuildList from './components/BuildList.jsx';
 import BuildDetail from './components/BuildDetail.jsx';
 import { deleteBuild, fetchBuilds } from './lib/api.js';
@@ -71,6 +72,7 @@ export default function App() {
         <Workspace onBuilt={handleCreated} />
         <NewBuild onCreated={handleCreated} />
         <GithubBuild />
+        <RemoteDesktop />
 
         {selectedId ? (
           <BuildDetail id={selectedId} onClose={() => setSelectedId(null)} />

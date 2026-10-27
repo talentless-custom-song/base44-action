@@ -40,6 +40,20 @@ not copy application source, which is bind-mounted instead. The root `package.js
 - The builder repository must actually contain `.github/workflows/desktop-build.yml`; dispatching to a repo
   without it answers `502` with a 404 hint. `GET /api/github/config` only reports that the three variables
   are set, not that they resolve to a reachable repo.
+- **Remote desktop (`web/src/components/RemoteDesktop.jsx`)** is a real VNC client (noVNC) with one
+  profile per Windows image (10 / 10.5 / 11 / 11.2). Each profile's websockify URL and password live in
+  `localStorage` (`buildhub.remote.<id>`); nothing about a session is stored server-side. No Windows image
+  ships with the repo — a profile only works once it points at a reachable VNC endpoint.
+- The browser reaches that endpoint through `api/remoteProxy.js`, which upgrades
+  `/api/remote/socket?target=<ws url>` and pipes it to the VNC server; `web/vite.config.js` proxies `/api`
+  with `ws: true`. This keeps the session same-origin, because the preview is https and the images expose
+  plain `ws://` (mixed content). Frames the client sends before the upstream socket opens are buffered.
+- noVNC 1.7 needs top-level await, so `web/vite.config.js` sets `build.target` and
+  `optimizeDeps.esbuildOptions.target` to `esnext`; without it the dev server dies on startup.
+- noVNC has no public pointer API: `RemoteDesktop` sends keys with `rfb.sendKey(keysym, code, down)` and the
+  pointer with the internal `rfb._sendMouse`, converting its framebuffer cursor to view coordinates because
+  noVNC maps view pixels onto the framebuffer itself. `VirtualKeyboard` types through X keysyms
+  (`web/src/lib/keysyms.js`) and forwards the phone's own keyboard through a hidden input.
 - `GET /api/sample.zip` serves a generated two-file static project. The UI's "Download sample project" link
   and quick manual testing both use it.
 - `BASE44_PREVIEW_MODE=1` only switches Vite's HMR socket to `wss` on port 443, because the preview is served
@@ -69,6 +83,13 @@ GitHub dispatch cannot be exercised without credentials; with them set, `POST /a
 `{"sourceMode":"repository","repoUrl":"https://github.com/OWNER/REPO","branch":"main","buildTarget":"both"}`
 should answer `202`. Its input validation (`api/github.js`) can be checked without network access by
 importing the module with dummy env vars and calling `dispatchBuild` with bad input.
+
+The remote desktop can be checked without Windows: run a WebSocket echo server on `127.0.0.1:9999` inside the
+`api` container and connect to `ws://127.0.0.1:8000/api/remote/socket?target=ws%3A%2F%2F127.0.0.1%3A9999`
+(and to the same path through `web:5173`) to prove the proxy pipes frames both ways. Driving the panel itself
+needs an RFB peer — a throwaway RFB 3.8 stub that completes the handshake and answers
+`FramebufferUpdateRequest` with one raw rectangle is enough to see the session go Live, send keys and pointer
+events, and confirm `KeyEvent`/`PointerEvent` frames arrive. Clean up the stub and its `/tmp` files afterwards.
 
 Delete any build you create while testing; there is no seeded data.
 
