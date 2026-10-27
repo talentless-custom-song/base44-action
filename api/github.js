@@ -6,11 +6,41 @@ const API_VERSION = '2022-11-28';
 const WORKFLOW_FILE = 'desktop-build.yml';
 const DISPATCH_REF = process.env.BUILDER_REF || 'main';
 
+// BUILDER_OWNER / BUILDER_REPO are often pasted from the browser as
+// "https://github.com/OWNER/REPO", so accept a bare name, "owner/repo" or a URL.
+function splitRef(value) {
+  return (value || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .replace(/\.git$/i, '')
+    .split(/[/?#]/)
+    .filter(Boolean)
+    .filter((part, index) => index > 0 || part.toLowerCase() !== 'github.com')
+    .map((part) => decodeURIComponent(part));
+}
+
+function resolveRepoRef() {
+  const ownerParts = splitRef(process.env.BUILDER_OWNER);
+  const repoParts = splitRef(process.env.BUILDER_REPO);
+  const valid = (part) => /^[A-Za-z0-9_.-]+$/.test(part);
+
+  // A full "owner/repo" reference is the most specific, from either variable.
+  const pair = repoParts.length >= 2 ? repoParts : ownerParts.length >= 2 ? ownerParts : null;
+  if (pair && valid(pair[0]) && valid(pair[1])) return { owner: pair[0], repo: pair[1] };
+
+  const owner = ownerParts[0] || '';
+  const repo = repoParts[0] || '';
+  return {
+    owner: valid(owner) ? owner : '',
+    repo: valid(repo) ? repo : '',
+  };
+}
+
 export function githubConfig() {
   return {
     token: (process.env.GITHUB_TOKEN || '').trim(),
-    owner: (process.env.BUILDER_OWNER || '').trim(),
-    repo: (process.env.BUILDER_REPO || '').trim(),
+    ...resolveRepoRef(),
   };
 }
 

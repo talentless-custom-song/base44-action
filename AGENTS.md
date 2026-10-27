@@ -35,7 +35,11 @@ not copy application source, which is bind-mounted instead. The root `package.js
   `BUILDER_OWNER`, `BUILDER_REPO` (and `BUILDER_REF`, default `main`) from `/run/base44/app.env`, wired in
   compose with an optional `env_file` so the app still boots without them. Without credentials it returns
   `500 {"error":"GitHub backend configuration is missing"}`. Its workflow-input names must stay in sync
-  with `.github/workflows/desktop-build.yml`.
+  with `.github/workflows/desktop-build.yml`. `BUILDER_OWNER` / `BUILDER_REPO` may be bare names or a pasted
+  `https://github.com/OWNER/REPO` URL — `resolveRepoRef()` in `api/github.js` normalizes both.
+- The builder repository must actually contain `.github/workflows/desktop-build.yml`; dispatching to a repo
+  without it answers `502` with a 404 hint. `GET /api/github/config` only reports that the three variables
+  are set, not that they resolve to a reachable repo.
 - `GET /api/sample.zip` serves a generated two-file static project. The UI's "Download sample project" link
   and quick manual testing both use it.
 - `BASE44_PREVIEW_MODE=1` only switches Vite's HMR socket to `wss` on port 443, because the preview is served
