@@ -10,7 +10,7 @@
     },
     {
       "name": "BUILDER_OWNER",
-      "description": "Owner (user or org) of the runner repository that holds .github/workflows/desktop-build.yml",
+      "description": "Owner (user or org) of the runner repository that holds .github/workflows/desktop-build.yml. A bare name or a pasted https://github.com/OWNER/REPO URL both work.",
       "requiredAtBoot": false
     },
     {
