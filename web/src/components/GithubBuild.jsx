@@ -41,12 +41,7 @@ export default function GithubBuild() {
         <span className="summary-hint">GitHub Actions · startBuild</span>
       </summary>
 
-      {config && !config.configured ? (
-        <p className="notice notice-info">
-          Add <code>GITHUB_TOKEN</code>, <code>BUILDER_OWNER</code> and <code>BUILDER_REPO</code> to
-          this app&apos;s secrets to dispatch the <code>desktop-build.yml</code> workflow.
-        </p>
-      ) : null}
+      {config && config.hint ? <p className="notice notice-info">{config.hint}</p> : null}
 
       <form className="github-form" onSubmit={submit}>
         <label className="field">

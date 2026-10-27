@@ -8,8 +8,15 @@ import crypto from 'node:crypto';
 import AdmZip from 'adm-zip';
 import * as store from './store.js';
 import * as workspace from './workspace.js';
-import { dispatchBuild, githubConfig, isGithubConfigured } from './github.js';
-import { attachRemoteProxy } from './remoteProxy.js';
+import { Readable } from 'node:stream';
+import {
+  dispatchBuild,
+  getRun,
+  githubStatus,
+  listRuns,
+  openArtifact,
+  runLogs,
+} from './github.js';
 import { enqueue, recoverInterrupted, sampleZipBuffer } from './runner.js';
 
 const PORT = Number(process.env.PORT || 8000);
@@ -212,14 +219,8 @@ app.post('/api/workspace/build', async (req, res) => {
 
 /* ---------- GitHub Actions dispatch (ported from base44-functions/startBuild.ts) ---------- */
 
-app.get('/api/github/config', (req, res) => {
-  const { owner, repo } = githubConfig();
-  res.json({
-    configured: isGithubConfigured(),
-    owner: owner || null,
-    repo: repo || null,
-    workflow: 'desktop-build.yml',
-  });
+app.get('/api/github/config', async (req, res) => {
+  res.json(await githubStatus());
 });
 
 app.post('/api/github/builds', async (req, res) => {
@@ -227,6 +228,55 @@ app.post('/api/github/builds', async (req, res) => {
     res.status(202).json(await dispatchBuild(req.body || {}));
   } catch (err) {
     res.status(err.status || 500).json(err.body || { error: 'Unexpected backend error' });
+  }
+});
+
+/* ---------- Real Windows runner (GitHub Actions windows-latest) ---------- */
+
+const isId = (value) => /^\d{1,20}$/.test(String(value));
+
+app.get('/api/github/runs', async (req, res) => {
+  try {
+    res.json({ runs: await listRuns(req.query.limit) });
+  } catch (err) {
+    res.status(err.status || 500).json(err.body || { error: err.message });
+  }
+});
+
+app.get('/api/github/runs/:id', async (req, res) => {
+  if (!isId(req.params.id)) return res.status(400).json({ error: 'Invalid run id' });
+  try {
+    res.json(await getRun(req.params.id));
+  } catch (err) {
+    res.status(err.status || 500).json(err.body || { error: err.message });
+  }
+});
+
+app.get('/api/github/runs/:id/logs', async (req, res) => {
+  if (!isId(req.params.id)) return res.status(400).json({ error: 'Invalid run id' });
+  try {
+    res.json({ logs: await runLogs(req.params.id) });
+  } catch (err) {
+    res.status(err.status || 500).json(err.body || { error: err.message });
+  }
+});
+
+app.get('/api/github/runs/:id/artifacts/:artifactId', async (req, res) => {
+  if (!isId(req.params.id) || !isId(req.params.artifactId)) {
+    return res.status(400).json({ error: 'Invalid run or artifact id' });
+  }
+  try {
+    const upstream = await openArtifact(req.params.id, req.params.artifactId);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="windows-run-${req.params.id}-${req.params.artifactId}.zip"`,
+    );
+    const length = upstream.headers.get('content-length');
+    if (length) res.setHeader('Content-Length', length);
+    Readable.fromWeb(upstream.body).pipe(res);
+  } catch (err) {
+    res.status(err.status || 500).json(err.body || { error: err.message });
   }
 });
 
@@ -238,6 +288,4 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`BuildHub API listening on ${PORT}`);
 });
 
-// Keeps the remote-desktop VNC socket same-origin, so a plain ws:// image works
-// on the https preview instead of being blocked as mixed content.
-attachRemoteProxy(server);
+

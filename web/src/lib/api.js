@@ -48,9 +48,16 @@ export const deleteWorkspacePath = (entryPath) =>
 export const buildWorkspace = (name) =>
   jsonRequest('/api/workspace/build', 'POST', { name }).then((d) => d.build);
 
-/* ---------- GitHub Actions dispatch ---------- */
+/* ---------- GitHub Actions: dispatch + real Windows runner ---------- */
 
 export const fetchGithubConfig = () => fetch('/api/github/config').then(toJson);
 
 export const dispatchGithubBuild = (payload) =>
   jsonRequest('/api/github/builds', 'POST', payload);
+
+export const fetchGithubRuns = () => fetch('/api/github/runs').then(toJson).then((d) => d.runs);
+
+export const fetchGithubRun = (id) => fetch(`/api/github/runs/${id}`).then(toJson);
+
+export const fetchGithubRunLogs = (id) =>
+  fetch(`/api/github/runs/${id}/logs`).then(toJson).then((d) => d.logs);

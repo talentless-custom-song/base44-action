@@ -9,7 +9,6 @@
   "dependencies": {
     "adm-zip": "^0.5.16",
     "express": "^4.21.2",
-    "multer": "^2.0.1",
-    "ws": "^8.22.0"
+    "multer": "^2.0.1"
   }
 }

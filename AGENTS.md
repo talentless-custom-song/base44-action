@@ -38,22 +38,20 @@ not copy application source, which is bind-mounted instead. The root `package.js
   with `.github/workflows/desktop-build.yml`. `BUILDER_OWNER` / `BUILDER_REPO` may be bare names or a pasted
   `https://github.com/OWNER/REPO` URL — `resolveRepoRef()` in `api/github.js` normalizes both.
 - The builder repository must actually contain `.github/workflows/desktop-build.yml`; dispatching to a repo
-  without it answers `502` with a 404 hint. `GET /api/github/config` only reports that the three variables
-  are set, not that they resolve to a reachable repo.
-- **Remote desktop (`web/src/components/RemoteDesktop.jsx`)** is a real VNC client (noVNC) with one
-  profile per Windows image (10 / 10.5 / 11 / 11.2). Each profile's websockify URL and password live in
-  `localStorage` (`buildhub.remote.<id>`); nothing about a session is stored server-side. No Windows image
-  ships with the repo — a profile only works once it points at a reachable VNC endpoint.
-- The browser reaches that endpoint through `api/remoteProxy.js`, which upgrades
-  `/api/remote/socket?target=<ws url>` and pipes it to the VNC server; `web/vite.config.js` proxies `/api`
-  with `ws: true`. This keeps the session same-origin, because the preview is https and the images expose
-  plain `ws://` (mixed content). Frames the client sends before the upstream socket opens are buffered.
-- noVNC 1.7 needs top-level await, so `web/vite.config.js` sets `build.target` and
-  `optimizeDeps.esbuildOptions.target` to `esnext`; without it the dev server dies on startup.
-- noVNC has no public pointer API: `RemoteDesktop` sends keys with `rfb.sendKey(keysym, code, down)` and the
-  pointer with the internal `rfb._sendMouse`, converting its framebuffer cursor to view coordinates because
-  noVNC maps view pixels onto the framebuffer itself. `VirtualKeyboard` types through X keysyms
-  (`web/src/lib/keysyms.js`) and forwards the phone's own keyboard through a hidden input.
+  without it answers `502` with a 404 hint. `GET /api/github/config` also probes the repository and the
+  workflow file, so it reports `reachable` / `workflowPresent` plus an actionable `hint` instead of claiming
+  success just because the three variables are set.
+- **Real runner panel (`web/src/components/WindowsRunner.jsx`)** shows what happened on the actual machine:
+  `GET /api/github/runs` lists recent runs, `GET /api/github/runs/:id` adds jobs, steps and artifacts,
+  `.../logs` returns the whole run log as text and `.../artifacts/:artifactId` streams the artifact zip.
+  The token never leaves the API: `api/github.js` follows GitHub's 302 to the signed log/artifact URL
+  **without** forwarding the `Authorization` header, and expands the log zip with `adm-zip`.
+- Job `labels` name the machine a job used (`windows-latest`, `ubuntu-latest`) and the panel shows them, so
+  a run is never presented as Windows when it was not.
+- **There is no Windows desktop in this sandbox and port 3000 cannot host one.** The host has no `/dev/kvm`
+  and no `vmx`/`svm` CPU flags (no nested virtualisation) and ~7 GB RAM, so a Windows VM cannot run here;
+  port 3000 is also the app's own preview entry point. The genuine Windows environment this app offers is a
+  `windows-latest` job in GitHub Actions.
 - `GET /api/sample.zip` serves a generated two-file static project. The UI's "Download sample project" link
   and quick manual testing both use it.
 - `BASE44_PREVIEW_MODE=1` only switches Vite's HMR socket to `wss` on port 443, because the preview is served
@@ -84,12 +82,19 @@ GitHub dispatch cannot be exercised without credentials; with them set, `POST /a
 should answer `202`. Its input validation (`api/github.js`) can be checked without network access by
 importing the module with dummy env vars and calling `dispatchBuild` with bad input.
 
-The remote desktop can be checked without Windows: run a WebSocket echo server on `127.0.0.1:9999` inside the
-`api` container and connect to `ws://127.0.0.1:8000/api/remote/socket?target=ws%3A%2F%2F127.0.0.1%3A9999`
-(and to the same path through `web:5173`) to prove the proxy pipes frames both ways. Driving the panel itself
-needs an RFB peer — a throwaway RFB 3.8 stub that completes the handshake and answers
-`FramebufferUpdateRequest` with one raw rectangle is enough to see the session go Live, send keys and pointer
-events, and confirm `KeyEvent`/`PointerEvent` frames arrive. Clean up the stub and its `/tmp` files afterwards.
+The real-runner endpoints are read-only and safe to repeat; they need the GitHub secrets and a builder repo
+that actually holds the workflow:
+
+```bash
+curl -s localhost:3000/api/github/config                  # reachable / workflowPresent / hint
+curl -s localhost:3000/api/github/runs                    # recent runs, newest first
+curl -s localhost:3000/api/github/runs/<run id>           # jobs, steps, artifacts
+curl -s localhost:3000/api/github/runs/<run id>/logs      # whole run log as text
+curl -s -o /tmp/artifact.zip localhost:3000/api/github/runs/<run id>/artifacts/<artifact id>
+```
+
+Do not dispatch a workflow just to verify these routes: a dispatch spends the user's Actions minutes and may
+start a real build.
 
 Delete any build you create while testing; there is no seeded data.
 
