@@ -2,6 +2,28 @@
 
 This ZIP is a **starter kit**, not a directly importable Base44 application. Use the prompt and setup guide to create the UI in Base44, then configure the backend function and GitHub Actions workflow.
 
+## Running BuildHub locally
+
+The repository now also contains a working BuildHub app you can run and preview:
+
+```bash
+docker compose -f docker-compose.base44.yml up -d --build
+```
+
+Then open port 3000. You get a dashboard with build stats, a drop zone for a project `.zip`, a **Build**
+button, a live build console, and downloadable artifacts.
+
+- Upload a `.zip` of a project. If the archive root has a `package.json`, the runner does a real
+  `npm install` + `npm run build` and packages `dist/` (or `build/`, `out/`, `public/`). Otherwise the
+  upload is packaged as a static site.
+- Builds run in the `api` container, one at a time, with logs streamed back to the dashboard.
+- "Download sample project" gives you a tiny archive to try the flow immediately.
+- No credentials are needed for this local runner. Repository-based builds on GitHub Actions are the
+  separate `base44-functions/startBuild.ts` path described below, which requires a runner repository,
+  `GITHUB_TOKEN`, `BUILDER_OWNER` and `BUILDER_REPO`.
+- There is no authentication: this is a development build server and it executes uploaded code, so do not
+  expose it publicly.
+
 ## Included
 - `BASE44_PROMPT.md` — prompt to paste into the Base44 AI builder.
 - `.github/workflows/desktop-build.yml` — example Electron build workflow for Windows and Linux.
