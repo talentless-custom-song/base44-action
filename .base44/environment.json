@@ -2,5 +2,21 @@
   "previewPort": 3000,
   "healthPath": "/",
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
-  "secrets": []
+  "secrets": [
+    {
+      "name": "GITHUB_TOKEN",
+      "description": "Fine-grained GitHub token with Actions read/write on the runner repository. Create it at https://github.com/settings/tokens?type=beta",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "BUILDER_OWNER",
+      "description": "Owner (user or org) of the runner repository that holds .github/workflows/desktop-build.yml",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "BUILDER_REPO",
+      "description": "Name of the runner repository that holds the desktop-build.yml workflow",
+      "requiredAtBoot": false
+    }
+  ]
 }

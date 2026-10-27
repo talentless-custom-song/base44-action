@@ -7,6 +7,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import AdmZip from 'adm-zip';
 import * as store from './store.js';
+import * as workspace from './workspace.js';
+import { dispatchBuild, githubConfig, isGithubConfigured } from './github.js';
 import { enqueue, recoverInterrupted, sampleZipBuffer } from './runner.js';
 
 const PORT = Number(process.env.PORT || 8000);
@@ -15,6 +17,7 @@ const WORK_ROOT = process.env.BUILD_WORKDIR || '/tmp/buildhub';
 const LOG_TAIL_BYTES = 200000;
 
 await store.init();
+await workspace.initWorkspace();
 await recoverInterrupted();
 
 const app = express();
@@ -125,6 +128,110 @@ app.delete('/api/builds/:id', async (req, res) => {
   await fsp.rm(path.join(WORK_ROOT, build.id), { recursive: true, force: true });
   return res.json({ ok: true });
 });
+
+/* ---------- workspace: create folders and files like GitHub ---------- */
+
+app.get('/api/workspace', async (req, res) => {
+  res.json({ files: await workspace.tree() });
+});
+
+app.get('/api/workspace/file', async (req, res) => {
+  try {
+    const content = await workspace.readFile(req.query.path);
+    res.json({ path: req.query.path, content });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.put('/api/workspace/file', async (req, res) => {
+  try {
+    const { path: filePath, content } = req.body || {};
+    if (typeof filePath !== 'string' || typeof content !== 'string') {
+      return res.status(400).json({ error: 'path and content are required' });
+    }
+    return res.json({ file: await workspace.writeFile(filePath, content) });
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
+app.post('/api/workspace/folder', async (req, res) => {
+  try {
+    const folderPath = req.body && req.body.path;
+    if (typeof folderPath !== 'string') {
+      return res.status(400).json({ error: 'path is required' });
+    }
+    return res.status(201).json({ folder: await workspace.createFolder(folderPath) });
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
+app.delete('/api/workspace/path', async (req, res) => {
+  try {
+    return res.json(await workspace.removeEntry(req.query.path));
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
+app.post('/api/workspace/build', async (req, res) => {
+  try {
+    if (!(await workspace.hasFiles())) {
+      return res.status(400).json({ error: 'Add at least one file to the workspace first' });
+    }
+
+    const id = crypto.randomUUID();
+    const archiveFile = store.archivePath(id);
+    const archiveSize = await workspace.writeZip(archiveFile);
+    const name = String((req.body && req.body.name) || '').trim().slice(0, 120) || 'workspace build';
+
+    await store.insert({
+      id,
+      name,
+      source: 'workspace',
+      status: 'queued',
+      createdAt: Date.now(),
+      startedAt: null,
+      finishedAt: null,
+      durationMs: null,
+      archiveName: 'workspace.zip',
+      archiveSize,
+      errorSummary: null,
+      artifact: null,
+    });
+
+    enqueue(id);
+    return res.status(201).json({ build: store.get(id) });
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
+/* ---------- GitHub Actions dispatch (ported from base44-functions/startBuild.ts) ---------- */
+
+app.get('/api/github/config', (req, res) => {
+  const { owner, repo } = githubConfig();
+  res.json({
+    configured: isGithubConfigured(),
+    owner: owner || null,
+    repo: repo || null,
+    workflow: 'desktop-build.yml',
+  });
+});
+
+app.post('/api/github/builds', async (req, res) => {
+  try {
+    res.status(202).json(await dispatchBuild(req.body || {}));
+  } catch (err) {
+    res.status(err.status || 500).json(err.body || { error: 'Unexpected backend error' });
+  }
+});
+
+function sendError(res, err) {
+  res.status(err.status || 500).json({ error: err.message || 'Unexpected error' });
+}
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`BuildHub API listening on ${PORT}`);

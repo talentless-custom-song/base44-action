@@ -1,0 +1,164 @@
+name: Desktop build
+
+# Dispatched by BuildHub's startBuild logic:
+#   POST /repos/{owner}/{repo}/actions/workflows/desktop-build.yml/dispatches
+# Inputs here must keep matching the ones in base44-functions/startBuild.ts and
+# api/github.js (source_mode, source_repo, source_branch, source_zip_url, build_target).
+#
+# Production hardening: pin the third-party actions to verified full commit SHAs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_mode:
+        description: Where the project comes from
+        required: true
+        default: repository
+        type: choice
+        options:
+          - repository
+          - zip
+      source_repo:
+        description: Source repository as OWNER/REPO (repository mode)
+        required: false
+        type: string
+      source_branch:
+        description: Branch, tag or commit to build
+        required: true
+        default: main
+        type: string
+      source_zip_url:
+        description: HTTPS URL of a source archive (zip mode)
+        required: false
+        type: string
+      build_target:
+        description: Which installers to produce
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - windows
+          - linux
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build for ${{ matrix.target }}
+    runs-on: ${{ matrix.target == 'windows' && 'windows-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(inputs.build_target == 'both' && '["linux","windows"]' || format('["{0}"]', inputs.build_target)) }}
+    steps:
+      - name: Validate dispatch inputs
+        shell: bash
+        env:
+          SOURCE_MODE: ${{ inputs.source_mode }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_ZIP_URL: ${{ inputs.source_zip_url }}
+        run: |
+          set -euo pipefail
+          if [ "$SOURCE_MODE" = "repository" ] && [ -z "$SOURCE_REPO" ]; then
+            echo "::error::source_repo is required when source_mode is repository."
+            exit 1
+          fi
+          if [ "$SOURCE_MODE" = "zip" ] && [ -z "$SOURCE_ZIP_URL" ]; then
+            echo "::error::source_zip_url is required when source_mode is zip."
+            exit 1
+          fi
+
+      - name: Check out source repository
+        if: inputs.source_mode == 'repository'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ inputs.source_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download source archive
+        if: inputs.source_mode == 'zip'
+        shell: bash
+        env:
+          SOURCE_ZIP_URL: ${{ inputs.source_zip_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --max-time 300 \
+            --output "$RUNNER_TEMP/source.zip" "$SOURCE_ZIP_URL"
+          rm -rf source && mkdir -p source
+          unzip -q -o "$RUNNER_TEMP/source.zip" -d source
+          # Accept an archive that wraps the project in a single top-level folder.
+          if [ -f source/package.json ]; then
+            cp -a source/. .
+          else
+            entry="$(find source -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+            if [ -z "$entry" ]; then
+              echo "::error::The source archive is empty."
+              exit 1
+            fi
+            cp -a "$entry"/. .
+          fi
+          rm -rf source
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f package.json ]; then
+            echo "::error::No package.json found at the project root."
+            exit 1
+          fi
+          if [ ! -f package-lock.json ]; then
+            echo "::warning::No package-lock.json found; installs are not reproducible."
+          fi
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Build application code
+        shell: bash
+        run: npm run build --if-present
+
+      - name: Check electron-builder is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npx --no-install electron-builder --version; then
+            echo "::error::electron-builder is not installed. Add it as a devDependency and commit package-lock.json."
+            exit 1
+          fi
+
+      - name: Package installers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = "windows" ]; then
+            npx --no-install electron-builder --win --publish never
+          else
+            npx --no-install electron-builder --linux --publish never
+          fi
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildhub-${{ matrix.target }}
+          path: dist/**
+          if-no-files-found: error
+          retention-days: 7

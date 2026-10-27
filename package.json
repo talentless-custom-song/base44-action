@@ -1,0 +1,12 @@
+{
+  "name": "buildhub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BuildHub — build uploaded or authored projects and download the artifacts",
+  "scripts": {
+    "up": "docker compose -f docker-compose.base44.yml up -d --build",
+    "down": "docker compose -f docker-compose.base44.yml down",
+    "logs": "docker compose -f docker-compose.base44.yml logs -f",
+    "ps": "docker compose -f docker-compose.base44.yml ps"
+  }
+}

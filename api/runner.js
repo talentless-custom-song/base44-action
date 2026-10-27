@@ -107,7 +107,9 @@ async function execute(id) {
   zip.extractAllTo(work, true);
   appendLog(id, `Extracted ${entries.length} entries from ${build.archiveName}`);
 
-  const root = await projectRoot(work);
+  // An uploaded archive may wrap the project in one folder, but the workspace
+  // root is the project root — never strip its only top-level folder.
+  const root = build.source === 'workspace' ? work : await projectRoot(work);
   let outputDir = root;
 
   const pkgPath = path.join(root, 'package.json');
@@ -187,7 +189,7 @@ async function projectRoot(dir) {
   return dir;
 }
 
-function addDirToZip(zip, dir, prefix) {
+export function addDirToZip(zip, dir, prefix) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === 'node_modules' || entry.name === '.git') continue;
     const full = path.join(dir, entry.name);
